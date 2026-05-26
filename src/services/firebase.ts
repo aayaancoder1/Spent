@@ -1,20 +1,49 @@
-// Placeholder file for future Firebase initialization and configuration
-// import { initializeApp } from 'firebase/app';
-// import { getFirestore } from 'firebase/firestore';
-// import { getAuth } from 'firebase/auth';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getFirestore } from 'firebase/firestore';
+// @ts-ignore
+import { initializeAuth, browserLocalPersistence, getReactNativePersistence } from 'firebase/auth';
+import { Platform } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
 
 export const firebaseConfig = {
   apiKey: "PLACEHOLDER_API_KEY",
-  authDomain: "PLACEHOLDER_AUTH_DOMAIN",
-  projectId: "PLACEHOLDER_PROJECT_ID",
-  storageBucket: "PLACEHOLDER_STORAGE_BUCKET",
-  messagingSenderId: "PLACEHOLDER_MESSAGING_SENDER_ID",
-  appId: "PLACEHOLDER_APP_ID"
+  authDomain: "spent-oled-finance-tracker.firebaseapp.com",
+  projectId: "spent-oled-finance-tracker",
+  storageBucket: "spent-oled-finance-tracker.appspot.com",
+  messagingSenderId: "1234567890",
+  appId: "1:1234567890:web:1234567890"
 };
 
-// Initialize Firebase placeholder (uncomment when real config keys are supplied)
-// export const app = initializeApp(firebaseConfig);
-// export const db = getFirestore(app);
-// export const auth = getAuth(app);
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-export const firebaseInitialized = false;
+const secureStoreAsyncStorage = {
+  getItem: async (key: string) => {
+    try {
+      return await SecureStore.getItemAsync(key);
+    } catch {
+      return null;
+    }
+  },
+  setItem: async (key: string, value: string) => {
+    try {
+      await SecureStore.setItemAsync(key, value);
+    } catch (e) {
+      console.warn('SecureStore setItem failed:', e);
+    }
+  },
+  removeItem: async (key: string) => {
+    try {
+      await SecureStore.deleteItemAsync(key);
+    } catch (e) {
+      console.warn('SecureStore removeItem failed:', e);
+    }
+  }
+};
+
+export const auth = initializeAuth(app, {
+  persistence: Platform.OS === 'web' 
+    ? browserLocalPersistence 
+    : getReactNativePersistence(secureStoreAsyncStorage)
+});
+
+export const db = getFirestore(app);

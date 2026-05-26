@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { StyleSheet, Pressable, View, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { InputField } from '@/components/input-field';
@@ -11,19 +10,31 @@ import { useTheme } from '@/hooks/use-theme';
 import { Spacing } from '@/theme/theme';
 
 export default function SignInScreen() {
-  const router = useRouter();
   const colors = useTheme();
-  const { signIn, loading } = useAuth();
+  const { signIn, signUp, loading } = useAuth();
 
+  const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const handleSignIn = async () => {
-    await signIn(email, password);
-    router.replace('/' as any);
+  const handleSubmit = async () => {
+    if (!email || !password) {
+      alert('Please fill in all fields.');
+      return;
+    }
+    
+    try {
+      if (isSignUp) {
+        await signUp(email, password);
+      } else {
+        await signIn(email, password);
+      }
+    } catch {
+      // Errors are caught and alerted inside useAuth
+    }
   };
 
-  const forgotPasswordLink = (
+  const forgotPasswordLink = !isSignUp && (
     <Pressable onPress={() => alert('Forgot password screen simulated')}>
       <ThemedText style={[styles.forgotBtn, { color: colors.primary }]}>Forgot?</ThemedText>
     </Pressable>
@@ -40,8 +51,10 @@ export default function SignInScreen() {
         <View style={styles.content}>
           {/* Welcome Text */}
           <View style={styles.welcomeContainer}>
-            <ThemedText style={styles.title}>Welcome back</ThemedText>
-            <ThemedText style={styles.subtitle}>Enter your details to manage your wealth.</ThemedText>
+            <ThemedText style={styles.title}>{isSignUp ? 'Create account' : 'Welcome back'}</ThemedText>
+            <ThemedText style={styles.subtitle}>
+              {isSignUp ? 'Enter your details to sign up.' : 'Enter your details to manage your wealth.'}
+            </ThemedText>
           </View>
 
           {/* Form */}
@@ -68,14 +81,18 @@ export default function SignInScreen() {
 
             {/* Buttons */}
             <PrimaryButton
-              label="Sign In"
-              onPress={handleSignIn}
+              label={isSignUp ? 'Sign Up' : 'Sign In'}
+              onPress={handleSubmit}
               loading={loading}
             />
 
             <SecondaryButton
-              label="Create new account"
-              onPress={() => alert('Registration screen simulated')}
+              label={isSignUp ? 'Already have an account? Sign In' : 'Create new account'}
+              onPress={() => {
+                setIsSignUp(!isSignUp);
+                setEmail('');
+                setPassword('');
+              }}
             />
           </View>
 

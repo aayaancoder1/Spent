@@ -1,92 +1,59 @@
 import { useState, useEffect } from 'react';
+import { 
+  collection, 
+  onSnapshot, 
+  query, 
+  addDoc, 
+  doc, 
+  updateDoc, 
+  deleteDoc, 
+  orderBy,
+  writeBatch
+} from 'firebase/firestore';
+import { db } from '@/services/firebase';
+import { useAuth } from '@/hooks/useAuth';
 import { Transaction } from '@/types/transaction';
 
-// Module-level array to act as a singleton database store for mock data
-let mockDatabase: Transaction[] = [
-  {
-    id: '1',
-    amount: 142.30,
-    description: 'Whole Foods Market',
-    tag: 'Necessity',
-    timestamp: new Date(),
-    source: 'manual',
-    deleted: false,
-  },
-  {
-    id: '2',
-    amount: 6.50,
-    description: 'Starbucks Coffee',
-    tag: 'Personal',
-    timestamp: new Date(),
-    source: 'manual',
-    deleted: false,
-  },
-  {
-    id: '3',
-    amount: 16.99,
-    description: 'Apple Music Subscription',
-    tag: 'Pleasure',
-    timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000),
-    source: 'auto',
-    deleted: false,
-  },
-  {
-    id: '4',
-    amount: 48.20,
-    description: 'Chevron Gas Station',
-    tag: 'Necessity',
-    timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000),
-    source: 'manual',
-    deleted: false,
-  },
-  {
-    id: '5',
-    amount: 12.50,
-    description: 'Starbucks Coffee',
-    tag: 'Personal',
-    timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-    source: 'manual',
-    deleted: true,
-  },
-  {
-    id: '6',
-    amount: 142.33,
-    description: 'Weekly Groceries',
-    tag: 'Necessity',
-    timestamp: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
-    source: 'manual',
-    deleted: true,
-  },
-  {
-    id: '7',
-    amount: 15.99,
-    description: 'Netflix Subscription',
-    tag: 'Pleasure',
-    timestamp: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000),
-    source: 'auto',
-    deleted: true,
-  },
-];
-
-// Re-usable pub/sub listener set for route sync
-const listeners = new Set<(txs: Transaction[]) => void>();
-
-function updateStore(newTxs: Transaction[]) {
-  mockDatabase = newTxs;
-  listeners.forEach((listener) => listener(mockDatabase));
-}
-
 export function useTransactions() {
-  const [transactions, setTransactions] = useState<Transaction[]>(mockDatabase);
-  const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const listener = (latestTxs: Transaction[]) => setTransactions(latestTxs);
-    listeners.add(listener);
-    return () => {
-      listeners.delete(listener);
-    };
-  }, []);
+    if (!user) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setTransactions([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    const txCollection = collection(db, 'users', user.uid, 'transactions');
+    const q = query(txCollection, orderBy('timestamp', 'desc'));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const txs: Transaction[] = [];
+      snapshot.forEach((docSnapshot) => {
+        const data = docSnapshot.data();
+        txs.push({
+          id: docSnapshot.id,
+          amount: data.amount,
+          description: data.description,
+          tag: data.tag,
+          timestamp: data.timestamp ? data.timestamp.toDate() : new Date(),
+          source: data.source,
+          deleted: data.deleted ?? false,
+        });
+      });
+      setTransactions(txs);
+      setLoading(false);
+    }, (error) => {
+      console.error('Firestore snapshot subscription failed:', error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   const activeTransactions = transactions.filter((t) => !t.deleted);
   const deletedTransactions = transactions.filter((t) => t.deleted);
@@ -96,62 +63,77 @@ export function useTransactions() {
     description: string,
     tag: 'Necessity' | 'Personal' | 'Pleasure'
   ): Promise<void> => {
+    if (!user) return;
     setLoading(true);
     try {
-      const newTx: Transaction = {
-        id: Math.random().toString(36).substring(2, 9),
+      const txCollection = collection(db, 'users', user.uid, 'transactions');
+      await addDoc(txCollection, {
         amount,
         description: description || 'Untitled Entry',
         tag,
         timestamp: new Date(),
         source: 'manual',
         deleted: false,
-      };
-      updateStore([newTx, ...mockDatabase]);
+      });
+    } catch (e) {
+      console.error('Failed to add transaction to Firestore:', e);
+      alert('Error saving transaction. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   const deleteTransaction = async (id: string): Promise<void> => {
+    if (!user) return;
     setLoading(true);
     try {
-      const updated = mockDatabase.map((t) =>
-        t.id === id ? { ...t, deleted: true } : t
-      );
-      updateStore(updated);
+      const txDocRef = doc(db, 'users', user.uid, 'transactions', id);
+      await updateDoc(txDocRef, { deleted: true });
+    } catch (e) {
+      console.error('Failed to soft delete transaction:', e);
     } finally {
       setLoading(false);
     }
   };
 
   const restoreTransaction = async (id: string): Promise<void> => {
+    if (!user) return;
     setLoading(true);
     try {
-      const updated = mockDatabase.map((t) =>
-        t.id === id ? { ...t, deleted: false } : t
-      );
-      updateStore(updated);
+      const txDocRef = doc(db, 'users', user.uid, 'transactions', id);
+      await updateDoc(txDocRef, { deleted: false });
+    } catch (e) {
+      console.error('Failed to restore transaction:', e);
     } finally {
       setLoading(false);
     }
   };
 
   const permanentlyDeleteTransaction = async (id: string): Promise<void> => {
+    if (!user) return;
     setLoading(true);
     try {
-      const updated = mockDatabase.filter((t) => t.id !== id);
-      updateStore(updated);
+      const txDocRef = doc(db, 'users', user.uid, 'transactions', id);
+      await deleteDoc(txDocRef);
+    } catch (e) {
+      console.error('Failed to delete transaction permanently:', e);
     } finally {
       setLoading(false);
     }
   };
 
   const emptyBin = async (): Promise<void> => {
+    if (!user || deletedTransactions.length === 0) return;
     setLoading(true);
     try {
-      const updated = mockDatabase.filter((t) => !t.deleted);
-      updateStore(updated);
+      const batch = writeBatch(db);
+      deletedTransactions.forEach((t) => {
+        const txDocRef = doc(db, 'users', user.uid, 'transactions', t.id);
+        batch.delete(txDocRef);
+      });
+      await batch.commit();
+    } catch (e) {
+      console.error('Failed to empty bin:', e);
     } finally {
       setLoading(false);
     }
